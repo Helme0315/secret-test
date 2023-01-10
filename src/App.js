@@ -1,26 +1,29 @@
-import logo from './logo.svg';
 import './App.css';
 import React, { useState, useEffect } from "react";
-const { SecretNetworkClient } = require("secretjs");
+const { SecretNetworkClient, MsgExecuteContract } = require("secretjs");
 
 const DENOM = 'SCRT';
 const MINIMAL_DENOM = 'uscrt';
 
-// Testnet
+// Testnet Info
 const GRPCWEB_URL = 'https://grpc.pulsar.scrttestnet.com';
 const LCD_URL = 'https://api.pulsar.scrttestnet.com';
 const RPC_URL = 'https://rpc.pulsar.scrttestnet.com';
 const CHAIN_ID = 'pulsar-2';
 const CHAIN_NAME = 'Secret Testnet'; 
 const sSCRT = "secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg";
-// Get codeHash using `secretcli q compute contract-hash secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg`
-const sScrtCodeHash = "af74387e276be8874f07bec3a87023ee49b0e7ebe08178c49d0a49c3c98ed60e";
+
+let secretjs;
+let permit;
 
 function App() {
   const [myAddress, setMyAddress] = useState("");
-  const [nativeBalance, setNativeBalance] = useState();
-  const [wrapBalance, setWrapBalance] = useState();
+  const [nativeBalance, setNativeBalance] = useState(0);
+  const [wrapBalance, setWrapBalance] = useState(0);
   const [keplrReady, setKeplrReady] = useState(false);
+
+  const [scrtConvertAmount, setScrtConvertAmount] = useState(0);
+  const [sscrtConvertAmount, setSscrtConvertAmount] = useState(0);
 
   useEffect(() => {
 
@@ -92,7 +95,7 @@ function App() {
 
       const [{ address: myAddress }] = await keplrOfflineSigner.getAccounts();
       
-      const secretjs = new SecretNetworkClient({
+      secretjs = new SecretNetworkClient({
         url: LCD_URL,
         chainId: CHAIN_ID,
         wallet: keplrOfflineSigner,
@@ -100,43 +103,93 @@ function App() {
         encryptionUtils: window.getEnigmaUtils(CHAIN_ID),
       });
       
-      const {
-        balance: { amount },
-      } = await secretjs.query.bank.balance(
-        {
-          address: myAddress,
-          denom: MINIMAL_DENOM,
-        }
+      permit = await secretjs.utils.accessControl.permit.sign(
+        myAddress,
+        CHAIN_ID,
+        "test",
+        [sSCRT],
+        ["owner", "balance"],
       );
-      setNativeBalance(new Intl.NumberFormat("en-US", {}).format(amount / 1e6))
-
-      const { token_info } = await secretjs.query.compute.queryContract({
-        contract_address: sSCRT,
-        // code_hash: sScrtCodeHash, // optional but way faster
-        query: { token_info: {} },
-      });
-      console.log("Wrapped Token: ", token_info);
-
-      const temp = await secretjs.query.bank.balance(
-        {
-          address: myAddress,
-          denom: "sscrt",
-        }
-      );
-      console.log(temp);
+      
+      getTokenBalance();
 
       setKeplrReady(true);
       setMyAddress(myAddress);
-      
+ 
     }
-      getKeplr();
+    getKeplr();
       
     return () => {};
   }, []);
 
+  const getTokenBalance = async () => {
+    const {
+      balance: { amount },
+    } = await secretjs.query.bank.balance(
+      {
+        address: myAddress,
+        denom: MINIMAL_DENOM,
+      }
+    );
+    setNativeBalance(new Intl.NumberFormat("en-US", {}).format(amount / 1e6))
+
+    const wrapBalance = await secretjs.query.snip20.getBalance({
+      address: myAddress,
+      contract: { address: sSCRT },
+      auth: { permit }
+    })
+    
+    if(wrapBalance) {
+      setWrapBalance(new Intl.NumberFormat("en-US", {}).format(wrapBalance.balance.amount / 1e6))
+    }
+    
+  }
+
+  const convertNativeToWrap = async () => {
+    if(nativeBalance < scrtConvertAmount) {
+      alert("Insufficient Balance");
+    } else {
+      const convertScrtMessage = new MsgExecuteContract({
+        sender: myAddress,
+        contract_address: sSCRT,
+        msg: { deposit: {} },
+        sent_funds: [{ amount: String(scrtConvertAmount * 1e6), denom: "uscrt" }]
+      });
+  
+      const tx = await secretjs.tx.broadcast([convertScrtMessage], {
+          gasLimit: 100_000,
+      });
+      console.log(tx);
+      getTokenBalance();
+      setScrtConvertAmount(0);
+    }
+    
+  }
+
+  const convertWrapToNative = async () => {
+    if(wrapBalance < sscrtConvertAmount) {
+      alert("Insufficient Balance");
+    } else {
+      const convertScrtMessage = new MsgExecuteContract({
+        sender: myAddress,
+        contract_address: sSCRT,
+        msg: { redeem: {
+          amount: String(sscrtConvertAmount * 1e6)
+        } },
+      });
+  
+      const tx = await secretjs.tx.broadcast([convertScrtMessage], {
+          gasLimit: 100_000,
+      });
+      console.log(tx);
+      getTokenBalance();
+      setSscrtConvertAmount(0);
+    }
+  }
+
   return (
     <div className="App">
-      <h1>Secret Dapp</h1>
+      <h1>ActList Secret Network Test Dapp</h1>
 
       {!keplrReady ? 
           <h1>Waiting for Keplr wallet integration...</h1>
@@ -147,6 +200,26 @@ function App() {
           </p>
           <p>
             <strong>SCRT Balance:</strong> {nativeBalance} SCRT
+          </p>
+
+          <p>
+            <strong>sSCRT Balance:</strong> {wrapBalance} sSCRT
+          </p>
+          <p>
+            <input
+              type="number" 
+              value={scrtConvertAmount}
+              onChange={(e) => setScrtConvertAmount(e.target.value)}
+            />
+            <button onClick={() => convertNativeToWrap()}>Convert SCRT to sSCRT</button>
+          </p>
+          <p>
+            <input
+              type="number" 
+              value={sscrtConvertAmount}
+              onChange={(e) => setSscrtConvertAmount(e.target.value)}
+            />
+            <button onClick={() => convertWrapToNative()}>Convert sSCRT to SCRT</button>
           </p>
         </div>
       }
