@@ -7,8 +7,8 @@ const MINIMAL_DENOM = 'uscrt';
 
 // Testnet Info
 const GRPCWEB_URL = 'https://grpc.pulsar.scrttestnet.com';
-const LCD_URL = 'https://api.pulsar.scrttestnet.com';
-const RPC_URL = 'https://rpc.pulsar.scrttestnet.com';
+const LCD_URL = 'http://testnet.securesecrets.org:1317';
+const RPC_URL = 'https://rpc.testnet.secretsaturn.net';
 const CHAIN_ID = 'pulsar-2';
 const CHAIN_NAME = 'Secret Testnet'; 
 const sSCRT = "secret18vd8fpwxzck93qlwghaj6arh4p7c5n8978vsyg";
